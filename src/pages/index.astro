@@ -1,0 +1,7 @@
+---
+import AppShell from '../layouts/AppShell.astro';
+import DashboardStats from '../components/islands/DashboardStats.svelte';
+---
+<AppShell active="home" title="Beranda" description="Semua deadline ada di satu tempat. Tarik napas, pilih langkah berikutnya.">
+  <DashboardStats client:load />
+</AppShell>

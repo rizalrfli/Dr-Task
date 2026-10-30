@@ -1,0 +1,51 @@
+- generic [ref=f12e1]:
+  - main [ref=f12e3]:
+    - generic [ref=f12e4]:
+      - generic [ref=f12e5]:
+        - paragraph [ref=f12e6]: Jumat, 30 Oktober
+        - heading "Pengaturan" [level=1] [ref=f12e7]
+        - paragraph [ref=f12e8]: Atur tampilan, pengingat, dan cadangan data.
+      - button "Ganti tema" [ref=f12e9] [cursor=pointer]
+    - generic [ref=f12e13]:
+      - generic [ref=f12e14]:
+        - generic [ref=f12e15]:
+          - heading "Pengingat deadline" [level=2] [ref=f12e16]
+          - paragraph [ref=f12e17]: Notifikasi hanya dapat dijadwalkan saat aplikasi terbuka. Jika aplikasi ditutup, deadline tetap ditandai saat kamu kembali.
+        - button "Izinkan notifikasi" [ref=f12e19] [cursor=pointer]
+      - generic [ref=f12e20]:
+        - generic [ref=f12e21]:
+          - heading "Tema tampilan" [level=2] [ref=f12e22]
+          - paragraph [ref=f12e23]: Pilih tampilan yang nyaman. Pilihan ini disimpan di browser perangkat ini.
+        - generic [ref=f12e24]:
+          - generic [ref=f12e25]: Pilih tema
+          - combobox "Pilih tema" [ref=f12e26]:
+            - option "Terang"
+            - option "Gelap" [selected]
+      - generic [ref=f12e27]:
+        - generic [ref=f12e28]:
+          - heading "Cadangan tugas" [level=2] [ref=f12e29]
+          - paragraph [ref=f12e30]: 0 tugas tersimpan di perangkat ini. Ekspor file JSON untuk menyimpan salinan, lalu impor kembali jika diperlukan.
+        - generic [ref=f12e31]:
+          - button "Ekspor JSON" [disabled] [ref=f12e32]
+          - generic [ref=f12e33] [cursor=pointer]:
+            - text: Impor JSON
+            - button "Impor JSON" [ref=f12e34]
+      - complementary [ref=f12e35]:
+        - heading "Data tetap di perangkatmu" [level=2] [ref=f12e36]
+        - paragraph [ref=f12e37]: TaskPulse tidak mengirim tugas ke server. Menghapus data browser atau berpindah perangkat dapat menghilangkan tugas, kecuali kamu menyimpan cadangan.
+  - navigation "Navigasi utama" [ref=f12e38]:
+    - link "Beranda" [ref=f12e39] [cursor=pointer]:
+      - /url: /
+    - link "Tugas" [ref=f12e43] [cursor=pointer]:
+      - /url: /tasks
+    - link "Kalender" [ref=f12e47] [cursor=pointer]:
+      - /url: /calendar
+    - link "Tambah tugas" [ref=f12e51] [cursor=pointer]:
+      - /url: /tasks?new=1
+    - link "Setelan" [ref=f12e54] [cursor=pointer]:
+      - /url: /settings
+  - generic [ref=f12e60]:
+    - button [ref=f12e61]
+    - button [ref=f12e67]
+    - button [ref=f12e71]
+    - button [ref=f12e76]

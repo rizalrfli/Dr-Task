@@ -1,0 +1,110 @@
+---
+interface Props { active: 'home' | 'tasks' | 'calendar' | 'settings'; title: string; description?: string; }
+const { active, title, description = 'Catat tugas, lalu fokus satu tenggat pada satu waktu.' } = Astro.props;
+import '../styles/global.css';
+const nav = [
+  { key: 'home', label: 'Beranda', href: '/', icon: 'home' },
+  { key: 'tasks', label: 'Tugas', href: '/tasks', icon: 'list' },
+  { key: 'calendar', label: 'Kalender', href: '/calendar', icon: 'calendar' },
+  { key: 'settings', label: 'Pengaturan', href: '/settings', icon: 'settings' },
+];
+---
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#F5F3EE" />
+    <meta name="description" content="Pengingat tugas dan deadline yang tersimpan di perangkatmu." />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/icons/mark.svg" />
+    <title>{title} · TaskPulse</title>
+    <script is:inline>
+      try {
+        const saved = localStorage.getItem('taskpulse-theme');
+        const dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.classList.toggle('dark', dark);
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <div class="app-frame">
+      <aside class="sidebar" aria-label="Navigasi utama">
+        <a class="brand" href="/" aria-label="TaskPulse, beranda"><img src="/icons/mark.svg" alt="" width="34" height="34"/><span>TaskPulse</span></a>
+        <nav class="side-links">
+          {nav.map((item) => <a href={item.href} class:list={['nav-link', { active: active === item.key }]} aria-current={active === item.key ? 'page' : undefined}><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><use href={`/icons/symbols.svg#${item.icon}`} /></svg></span>{item.label}</a>)}
+        </nav>
+        <p class="side-note">Ruang kecil untuk semua yang perlu diingat.</p>
+      </aside>
+      <main class="main-area">
+        <header class="page-head"><div><p class="date-line" id="today-label"></p><h1>{title}</h1><p class="page-description">{description}</p></div><button class="theme-button" id="theme-toggle" type="button" aria-label="Ganti tema" title="Ganti tema"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="/icons/symbols.svg#sun" class="sun-icon"/><use href="/icons/symbols.svg#moon" class="moon-icon"/></svg></button></header>
+        <slot />
+      </main>
+    </div>
+    <nav class="bottom-nav" aria-label="Navigasi utama">
+      {nav.slice(0, 3).map((item) => <a href={item.href} class:list={['bottom-link', { active: active === item.key }]} aria-current={active === item.key ? 'page' : undefined}><svg viewBox="0 0 24 24" aria-hidden="true"><use href={`/icons/symbols.svg#${item.icon}`} /></svg><span>{item.label}</span></a>)}
+      <a href="/tasks?new=1" class="add-nav" aria-label="Tambah tugas"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="/icons/symbols.svg#plus" /></svg></a>
+      <a href="/settings" class:list={['bottom-link', { active: active === 'settings' }]} aria-current={active === 'settings' ? 'page' : undefined}><svg viewBox="0 0 24 24" aria-hidden="true"><use href="/icons/symbols.svg#settings" /></svg><span>Setelan</span></a>
+    </nav>
+    <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+    <script>
+      import { registerSW } from 'virtual:pwa-register';
+      registerSW({ onNeedRefresh() { window.dispatchEvent(new Event('taskpulse:update-ready')); } });
+      const toggle = document.querySelector<HTMLButtonElement>('#theme-toggle');
+      toggle?.addEventListener('click', () => {
+        const dark = document.documentElement.classList.toggle('dark');
+        localStorage.setItem('taskpulse-theme', dark ? 'dark' : 'light');
+      });
+      const label = document.querySelector('#today-label');
+      if (label) label.textContent = new Intl.DateTimeFormat('id-ID', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
+      window.addEventListener('taskpulse:update-ready', () => {
+        const region = document.querySelector('#toast-region');
+        if (!region) return;
+        region.innerHTML = '<div class="toast">Pembaruan tersedia <button type="button" id="update-app">Muat ulang</button></div>';
+        document.querySelector('#update-app')?.addEventListener('click', () => location.reload());
+      });
+    </script>
+  </body>
+</html>
+<style>
+  .app-frame { min-height: 100vh; }
+  .sidebar { display: none; }
+  .main-area { width: min(100%, 760px); margin: 0 auto; padding: 25px 18px calc(90px + env(safe-area-inset-bottom)); }
+  .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin: 5px 0 28px; }
+  .date-line { margin: 0 0 5px; color: #6B675C; font-size: .82rem; text-transform: capitalize; }
+  h1 { margin: 0; font-size: clamp(1.75rem, 6vw, 2rem); letter-spacing: -.035em; line-height: 1.2; }
+  .page-description { margin: 7px 0 0; color: #55524A; max-width: 38ch; }
+  .theme-button { width: 44px; height: 44px; display: grid; place-items: center; flex: 0 0 auto; border: 1px solid #DAD5C7; border-radius: 10px; background: #FFFDF8; cursor: pointer; }
+  .theme-button svg { width: 21px; height: 21px; }
+  .sun-icon { display: block; }.moon-icon { display: none; }
+  :global(.dark) .sun-icon { display: none; }:global(.dark) .moon-icon { display: block; }
+  .bottom-nav { position: fixed; z-index: 5; inset: auto 0 0; display: grid; grid-template-columns: repeat(5, 1fr); align-items: center; min-height: calc(64px + env(safe-area-inset-bottom)); padding: 4px 7px env(safe-area-inset-bottom); border-top: 1px solid #DAD5C7; background: #FFFDF8; }
+  .bottom-link { display: flex; min-width: 0; min-height: 48px; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-decoration: none; color: #6B675C; font-size: .66rem; }
+  .bottom-link svg { width: 21px; height: 21px; }
+  .bottom-link.active { color: #9A3B1B; font-weight: 650; }
+  .add-nav { width: 48px; height: 48px; display: grid; place-items: center; justify-self: center; border-radius: 14px; background: #9A3B1B; color: #FFFDF8; }
+  .add-nav svg { width: 25px; height: 25px; }
+  .toast-region { position: fixed; z-index: 8; inset: 12px 12px auto; display: flex; justify-content: center; pointer-events: none; }
+  .toast { max-width: 100%; display: flex; align-items: center; gap: 14px; padding: 10px 14px; border: 1px solid #DAD5C7; border-radius: 10px; background: #FFFDF8; box-shadow: 0 4px 24px #1c1b181a; pointer-events: auto; }
+  .toast button { border: 0; background: none; color: #9A3B1B; font-weight: 650; cursor: pointer; min-height: 36px; }
+  :global(.dark) .sidebar, :global(.dark) .bottom-nav, :global(.dark) .theme-button, :global(.dark) .toast { background: #201F1A; border-color: #34322B; color: #F0EDE3; }
+  :global(.dark) .date-line, :global(.dark) .page-description { color: #B5B0A2; }
+  :global(.dark) .bottom-link { color: #B5B0A2; }:global(.dark) .bottom-link.active { color: #E0764B; }
+  :global(.dark) .add-nav { background: #E0764B; color: #171613; }
+  @media (min-width: 768px) { .main-area { padding: 34px 30px 48px; } }
+  @media (min-width: 1024px) {
+    .app-frame { display: grid; grid-template-columns: 200px minmax(0, 1fr); }
+    .sidebar { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; padding: 28px 16px; border-right: 1px solid #DAD5C7; background: #FFFDF8; }
+    .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 28px; font-weight: 700; font-size: 1.04rem; text-decoration: none; }
+    .side-links { display: grid; gap: 5px; }
+    .nav-link { display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 11px; border-radius: 8px; text-decoration: none; color: #55524A; }
+    .nav-link.active { background: #ECE9E0; color: #1C1B18; font-weight: 650; }
+    .nav-icon { width: 21px; height: 21px; }.nav-icon svg { width: 100%; height: 100%; }
+    .side-note { margin: auto 8px 0; color: #6B675C; font-size: .8rem; }
+    .main-area { width: min(100%, 820px); margin-inline: auto; padding: 42px 42px 70px; }
+    .bottom-nav { display: none; }
+    :global(.dark) .sidebar { background: #201F1A; border-color: #34322B; }
+    :global(.dark) .nav-link { color: #B5B0A2; }:global(.dark) .nav-link.active { background: #34322B; color: #F0EDE3; }
+    :global(.dark) .side-note { color: #B5B0A2; }
+  }
+</style>

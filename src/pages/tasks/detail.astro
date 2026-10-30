@@ -1,0 +1,7 @@
+---
+import AppShell from '../../layouts/AppShell.astro';
+import TaskDetail from '../../components/islands/TaskDetail.svelte';
+---
+<AppShell active="tasks" title="Detail tugas" description="Periksa tenggat dan catatan tugas.">
+  <TaskDetail client:load />
+</AppShell>

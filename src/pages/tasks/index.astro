@@ -1,0 +1,7 @@
+---
+import AppShell from '../../layouts/AppShell.astro';
+import TaskList from '../../components/islands/TaskList.svelte';
+---
+<AppShell active="tasks" title="Tugas" description="Catat, urutkan, dan tandai tugas saat sudah selesai.">
+  <TaskList client:load />
+</AppShell>

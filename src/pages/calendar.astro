@@ -1,0 +1,7 @@
+---
+import AppShell from '../layouts/AppShell.astro';
+import MonthCalendar from '../components/islands/MonthCalendar.svelte';
+---
+<AppShell active="calendar" title="Kalender" description="Pilih tanggal untuk melihat tugas yang punya deadline.">
+  <MonthCalendar client:load />
+</AppShell>

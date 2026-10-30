@@ -1,0 +1,44 @@
+﻿@import "tailwindcss";
+
+@theme {
+  --color-paper: #F5F3EE;
+  --color-raised: #FFFDF8;
+  --color-sunken: #ECE9E0;
+  --color-ink: #1C1B18;
+  --color-ink-soft: #55524A;
+  --color-ink-faint: #6B675C;
+  --color-rule: #DAD5C7;
+  --color-accent: #9A3B1B;
+  --color-overdue: #A32017;
+  --color-today: #8A5A00;
+  --color-done: #4F6B4A;
+  --color-night: #171613;
+  --color-night-raised: #201F1A;
+  --color-night-ink: #F0EDE3;
+  --color-night-ink-soft: #B5B0A2;
+  --color-night-rule: #34322B;
+  --color-night-accent: #E0764B;
+  --color-night-overdue: #F0857A;
+  --color-night-today: #E0AE5A;
+  --color-night-done: #8FBF87;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+}
+
+:root { color-scheme: light; font-family: var(--font-sans); font-synthesis: none; text-rendering: optimizeLegibility; }
+:root.dark { color-scheme: dark; }
+* { box-sizing: border-box; }
+html { min-width: 320px; background: var(--color-paper); scroll-padding-bottom: 6rem; }
+html.dark { background: var(--color-night); }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--color-paper); color: var(--color-ink); font-size: 0.95rem; line-height: 1.5; transition: background-color 150ms, color 150ms; }
+.dark body { background: var(--color-night); color: var(--color-night-ink); }
+button, input, textarea, select { font: inherit; }
+button, a, input, textarea, select { -webkit-tap-highlight-color: transparent; }
+button { color: inherit; }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.dark :focus-visible { outline-color: var(--color-night-accent); }
+::selection { color: #FFFDF8; background: #9A3B1B; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
