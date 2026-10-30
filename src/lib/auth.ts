@@ -16,7 +16,13 @@ export async function signUp(email: string, password: string, fullName?: string)
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: fullName ? { full_name: fullName } : undefined }
+    options: {
+      data: fullName ? { full_name: fullName } : undefined,
+      // Tautan konfirmasi harus kembali ke domain tempat user mendaftar,
+      // bukan ke Site URL bawaan. Domain ini tetap wajib ada di daftar
+      // Redirect URLs pada dashboard Supabase.
+      emailRedirectTo: typeof location === 'undefined' ? undefined : `${location.origin}/login`
+    }
   });
   if (error) throw error;
   if (data.session) await logLoginEvent('signup', 'password');
