@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { dueBucket, dueLabel, formatDueDate } from '../../lib/dates';
   import { getTask, removeTask, saveTask } from '../../lib/db';
+  import { logActivity } from '../../lib/activity';
+  import { syncNow } from '../../lib/sync';
   import type { Task } from '../../lib/types';
   let task = $state<Task | undefined>();
   let loading = $state(true);
@@ -15,12 +17,26 @@
   }
   async function toggleDone() {
     if (!task) return;
-    try { task = { ...task, status: task.status === 'done' ? 'pending' : 'done', completedAt: task.status === 'done' ? undefined : new Date().toISOString() }; await saveTask(task); window.dispatchEvent(new Event('taskpulse:tasks-changed')); }
+    try {
+      const nextStatus = task.status === 'done' ? 'pending' : 'done';
+      task = { ...task, status: nextStatus, completedAt: nextStatus === 'done' ? new Date().toISOString() : undefined };
+      await saveTask(task);
+      window.dispatchEvent(new Event('taskpulse:tasks-changed'));
+      void logActivity(nextStatus === 'done' ? 'task_completed' : 'task_reopened', { entityType: 'task', entityId: task.id });
+      void syncNow().then(() => window.dispatchEvent(new Event('taskpulse:tasks-changed')));
+    }
     catch { error = 'Perubahan status gagal disimpan.'; }
   }
   async function deleteTask() {
     if (!task || !confirm(`Hapus tugas “${task.title}”? Tindakan ini tidak bisa dibatalkan.`)) return;
-    try { await removeTask(task.id); window.dispatchEvent(new Event('taskpulse:tasks-changed')); location.href = '/tasks'; }
+    const removed = task;
+    try {
+      await removeTask(removed.id);
+      window.dispatchEvent(new Event('taskpulse:tasks-changed'));
+      void logActivity('task_deleted', { entityType: 'task', entityId: removed.id, metadata: { title: removed.title } });
+      void syncNow();
+      location.href = '/tasks';
+    }
     catch { error = 'Tugas gagal dihapus. Coba lagi.'; }
   }
   onMount(() => { void load(); });

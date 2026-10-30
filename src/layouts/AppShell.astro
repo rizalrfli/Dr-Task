@@ -1,11 +1,12 @@
 ---
-interface Props { active: 'home' | 'tasks' | 'calendar' | 'settings'; title: string; description?: string; }
+interface Props { active: 'home' | 'tasks' | 'calendar' | 'settings' | 'activity'; title: string; description?: string; }
 const { active, title, description = 'Catat tugas, lalu fokus satu tenggat pada satu waktu.' } = Astro.props;
 import '../styles/global.css';
 const nav = [
   { key: 'home', label: 'Beranda', href: '/', icon: 'home' },
   { key: 'tasks', label: 'Tugas', href: '/tasks', icon: 'list' },
   { key: 'calendar', label: 'Kalender', href: '/calendar', icon: 'calendar' },
+  { key: 'activity', label: 'Riwayat', href: '/activity', icon: 'history' },
   { key: 'settings', label: 'Pengaturan', href: '/settings', icon: 'settings' },
 ];
 ---
@@ -26,6 +27,20 @@ const nav = [
         document.documentElement.classList.toggle('dark', dark);
       } catch {}
     </script>
+    <script is:inline>
+      // Gerbang kosmetik: cegah kilatan konten sebelum sesi diverifikasi.
+      // Proteksi data sebenarnya ada di Row Level Security pada database.
+      try {
+        const raw = localStorage.getItem('taskpulse-auth');
+        const session = raw ? JSON.parse(raw) : null;
+        if (!session?.access_token) {
+          const next = encodeURIComponent(location.pathname + location.search);
+          location.replace('/login?next=' + next);
+        }
+      } catch {
+        location.replace('/login');
+      }
+    </script>
   </head>
   <body>
     <div class="app-frame">
@@ -34,6 +49,10 @@ const nav = [
         <nav class="side-links">
           {nav.map((item) => <a href={item.href} class:list={['nav-link', { active: active === item.key }]} aria-current={active === item.key ? 'page' : undefined}><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><use href={`/icons/symbols.svg#${item.icon}`} /></svg></span>{item.label}</a>)}
         </nav>
+        <div class="account-box">
+          <p class="account-email" id="account-email" title="Akun aktif"></p>
+          <button class="account-logout" id="account-logout" type="button">Keluar</button>
+        </div>
         <p class="side-note">Ruang kecil untuk semua yang perlu diingat.</p>
       </aside>
       <main class="main-area">
@@ -49,7 +68,26 @@ const nav = [
     <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
     <script>
       import { registerSW } from 'virtual:pwa-register';
+      import { getSession, signOut } from '../lib/auth';
+      import { startAutoSync } from '../lib/sync';
       registerSW({ onNeedRefresh() { window.dispatchEvent(new Event('taskpulse:update-ready')); } });
+
+      const emailLabel = document.querySelector<HTMLElement>('#account-email');
+      void getSession().then((session) => {
+        if (!session) { location.replace('/login'); return; }
+        if (emailLabel) emailLabel.textContent = session.user.email ?? 'Akun aktif';
+      });
+
+      document.querySelector<HTMLButtonElement>('#account-logout')?.addEventListener('click', async () => {
+        await signOut().catch(() => {});
+        location.replace('/login');
+      });
+
+      startAutoSync(() => window.dispatchEvent(new Event('taskpulse:tasks-changed')));
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') void getSession();
+      });
+
       const toggle = document.querySelector<HTMLButtonElement>('#theme-toggle');
       toggle?.addEventListener('click', () => {
         const dark = document.documentElement.classList.toggle('dark');
@@ -100,7 +138,15 @@ const nav = [
     .nav-link { display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 11px; border-radius: 8px; text-decoration: none; color: #55524A; }
     .nav-link.active { background: #ECE9E0; color: #1C1B18; font-weight: 650; }
     .nav-icon { width: 21px; height: 21px; }.nav-icon svg { width: 100%; height: 100%; }
-    .side-note { margin: auto 8px 0; color: #6B675C; font-size: .8rem; }
+    .side-note { margin: 14px 8px 0; color: #6B675C; font-size: .8rem; }
+  .account-box { margin-top: auto; display: grid; gap: 6px; padding: 10px 8px 0; border-top: 1px solid #ECE9E0; }
+  .account-email { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #55524A; font-size: .78rem; }
+  .account-logout { min-height: 40px; padding: 0 11px; border: 1px solid #DAD5C7; border-radius: 8px; background: transparent; color: #1C1B18; font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer; text-align: left; }
+  .account-logout:hover { background: #ECE9E0; }
+  :global(.dark) .account-box { border-color: #34322B; }
+  :global(.dark) .account-email { color: #B5B0A2; }
+  :global(.dark) .account-logout { border-color: #34322B; color: #F0EDE3; }
+  :global(.dark) .account-logout:hover { background: #34322B; }
     .main-area { width: min(100%, 820px); margin-inline: auto; padding: 42px 42px 70px; }
     .bottom-nav { display: none; }
     :global(.dark) .sidebar { background: #201F1A; border-color: #34322B; }

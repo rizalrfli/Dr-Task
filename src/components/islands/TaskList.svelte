@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { compareTasks, dueBucket, dueLabel, formatDueDate } from '../../lib/dates';
   import { getTasks, removeTask, saveTask } from '../../lib/db';
+  import { logActivity } from '../../lib/activity';
+  import { syncNow } from '../../lib/sync';
   import { requestNotificationPermission, scheduleTaskReminder } from '../../lib/notifications';
   import type { Priority, Task } from '../../lib/types';
 
@@ -59,20 +61,30 @@
       const task: Task = { id: editingId ?? crypto.randomUUID(), title: title.trim(), description: description.trim() || undefined,
         dueDate, dueTime: dueTime || undefined, priority: taskPriority, status: existing?.status ?? 'pending',
         category: category.trim() || undefined, notify, createdAt: existing?.createdAt ?? new Date().toISOString(), completedAt: existing?.completedAt };
-      await saveTask(task); await refresh(); scheduleTaskReminder(task); announceTaskChange(); showForm = false; clearForm();
+      await saveTask(task); await refresh(); scheduleTaskReminder(task); announceTaskChange();
+      void logActivity(existing ? 'task_updated' : 'task_created', { entityType: 'task', entityId: task.id, metadata: { priority: task.priority, status: task.status } });
+      void syncNow().then(() => announceTaskChange());
+      showForm = false; clearForm();
       feedback = existing ? 'Perubahan tugas disimpan.' : 'Tugas ditambahkan.';
     } catch (reason) { error = reason instanceof Error ? reason.message : 'Tugas gagal disimpan. Periksa ruang penyimpanan perangkat lalu coba lagi.'; }
     finally { saving = false; }
   }
   async function toggleDone(task: Task) {
     try {
-      await saveTask({ ...task, status: task.status === 'done' ? 'pending' : 'done', completedAt: task.status === 'done' ? undefined : new Date().toISOString() });
+      const nextStatus = task.status === 'done' ? 'pending' : 'done';
+      await saveTask({ ...task, status: nextStatus, completedAt: nextStatus === 'done' ? new Date().toISOString() : undefined });
       await refresh(); announceTaskChange();
+      void logActivity(nextStatus === 'done' ? 'task_completed' : 'task_reopened', { entityType: 'task', entityId: task.id });
+      void syncNow().then(() => announceTaskChange());
     } catch { error = 'Status tugas gagal diperbarui. Coba lagi.'; }
   }
   async function deleteTask(task: Task) {
     if (!window.confirm(`Hapus tugas “${task.title}”? Tindakan ini tidak bisa dibatalkan.`)) return;
-    try { await removeTask(task.id); await refresh(); announceTaskChange(); feedback = 'Tugas dihapus.'; }
+    try {
+      await removeTask(task.id); await refresh(); announceTaskChange(); feedback = 'Tugas dihapus.';
+      void logActivity('task_deleted', { entityType: 'task', entityId: task.id, metadata: { title: task.title } });
+      void syncNow().then(() => announceTaskChange());
+    }
     catch { error = 'Tugas gagal dihapus. Coba lagi.'; }
   }
   function handleEscape(event: KeyboardEvent) { if (event.key === 'Escape') showForm = false; }
@@ -141,7 +153,7 @@
         <div class="field-grid"><label class="field">Tanggal deadline <span aria-hidden="true">*</span><input bind:value={dueDate} type="date" required /></label><label class="field">Waktu <span class="optional">(opsional)</span><input bind:value={dueTime} type="time" /></label></div>
         <div class="field-grid"><label class="field">Prioritas<select bind:value={taskPriority}><option value="high">Tinggi</option><option value="medium">Sedang</option><option value="low">Rendah</option></select></label><label class="field">Kategori <span class="optional">(opsional)</span><input bind:value={category} maxlength="40" placeholder="Kuliah, kerja…" /></label></div>
         <label class="notify-check"><input bind:checked={notify} type="checkbox" /><span><strong>Ingatkan di perangkat ini</strong><small>Pengingat hanya berfungsi saat aplikasi terbuka.</small></span></label>
-        <p class="form-note">Tugas tersimpan di perangkat ini. Ekspor salinan dari Pengaturan agar data tetap aman.</p>
+        <p class="form-note">Tugas tersimpan di perangkat ini dan disinkronkan ke akunmu saat online.</p>
         <div class="form-actions"><button class="quiet-button" type="button" onclick={() => { showForm = false; clearForm(); }}>Batal</button><button class="primary" type="submit" disabled={saving}>{saving ? 'Menyimpan…' : editingId ? 'Simpan perubahan' : 'Simpan tugas'}</button></div>
       </form>
     </dialog>

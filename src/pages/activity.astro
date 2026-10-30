@@ -1,0 +1,7 @@
+---
+import AppShell from '../layouts/AppShell.astro';
+import ActivityLog from '../components/islands/ActivityLog.svelte';
+---
+<AppShell active="activity" title="Riwayat Aktivitas" description="Catatan masuk dan semua perubahan yang kamu lakukan di TaskPulse.">
+  <ActivityLog client:load />
+</AppShell>

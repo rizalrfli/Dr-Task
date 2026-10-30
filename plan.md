@@ -2,7 +2,7 @@
 
 ## Ringkasan
 
-Aplikasi web (PWA installable) untuk mengingat tugas dan deadline. Berjalan offline-first, data disimpan lokal di IndexedDB, tanpa login, tanpa server backend. Bisa di-install ke homescreen Android/iOS seperti aplikasi biasa.
+Aplikasi web (PWA installable) untuk mengingat tugas dan deadline. Offline-first dengan IndexedDB sebagai cache lokal, disinkronkan ke Supabase agar bisa dibuka dari perangkat mana pun. Login memakai email + password, dan setiap perubahan data tercatat dalam riwayat aktivitas. Bisa di-install ke homescreen Android/iOS seperti aplikasi biasa.
 
 **Tujuan akhir (fase 2, opsional):** dibungkus jadi APK Android via Capacitor/TWA. Struktur proyek sudah disiapkan untuk itu sejak awal.
 
@@ -13,7 +13,10 @@ Aplikasi web (PWA installable) untuk mengingat tugas dan deadline. Berjalan offl
 | Keputusan | Pilihan | Alasan |
 |---|---|---|
 | Bentuk aplikasi | **PWA installable** | Cepat, gratis, tanpa Play Store. Bisa jadi APK di fase 2 |
-| Penyimpanan | **Lokal (IndexedDB)** | Offline-first, tanpa akun, data tetap di device. Backup via export/import JSON |
+| Penyimpanan | **IndexedDB (cache) + Supabase Postgres (sumber kebenaran)** | UI tetap responsif & offline; data ikut akun sehingga bisa dibuka dari perangkat lain. Backup manual tetap tersedia via export/import JSON |
+| Autentikasi | **Email + password (Supabase Auth)** | Paling sederhana dan tidak bergantung pada penyedia OAuth pihak ketiga |
+| Aktivitas | **Login + perubahan data** | Login/logout, CRUD tugas, export/import, ubah setting. Page view tidak dicatat agar tabel tidak berisik |
+| Keamanan | **Row Level Security** | Batas kepercayaan ada di database, bukan di UI. Tidak ada `service_role` di aplikasi |
 | Pengingat | **Notifikasi browser/PWA** | Notification API dan service worker. Pengingat ketika app aktif; status deadline terlambat saat app dibuka kembali |
 | Kerangka | **Astro + Svelte** | Astro untuk shell/halaman, Svelte untuk interaktivitas |
 | Gaya | **Tailwind CSS v4** | Utility, tanpa file config terpisah (via `@tailwindcss/vite`) |
@@ -32,11 +35,35 @@ Aplikasi web (PWA installable) untuk mengingat tugas dan deadline. Berjalan offl
 | CSS | Tailwind CSS v4 | ^4.3.3 |
 | Vite plugin Tailwind | @tailwindcss/vite | ^4.3.3 |
 | Database lokal | idb (IndexedDB) | ^8.0.4 |
+| Backend | @supabase/supabase-js | ^2 |
 | Manipulasi tanggal | date-fns | ^4.4.0 |
 | Tipe | TypeScript | ^5.9.0 |
 | Test | Vitest | ^5.0.5 |
 
 > Catatan versi: `vite-plugin-pwa` dipasang langsung di `vite.plugins` pada `astro.config.mjs`, tanpa wrapper `@vite-pwa/astro`. Ini menghindari peer dependency wrapper yang belum mencakup Astro 7. Versi plugin tetap harus cocok dengan versi Vite yang dipakai Astro.
+
+---
+
+## Konfigurasi & Environment
+
+Variabel di `.env` (sudah masuk `.gitignore`, contoh ada di `.env.example`):
+
+```bash
+PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
+```
+
+Hanya kunci publik yang dipakai di client. Tidak ada `service_role` di aplikasi, dan seluruh izin data ditegakkan oleh RLS.
+
+Pengaturan Supabase yang diperlukan:
+
+| Setelan | Nilai | Alasan |
+|---|---|---|
+| Auth provider Email | Aktif | Login email + password |
+| Confirm email | Nonaktif saat pengembangan | Supaya daftar langsung dapat sesi; aktifkan untuk produksi |
+| Site URL / Redirect URLs | `http://localhost:4321` (+ domain produksi) | Callback auth |
+
+Project aktif: `vuvhfckwqilvdjfckkmk`, region `eu-central-1`, Postgres 17.
 
 ---
 
@@ -48,14 +75,16 @@ Struktur file (rincian teknis di `architecture.md`):
 src/
 ├── pages/
 │   ├── index.astro          # Dashboard: tugas hari ini, terlambat, ringkasan
+│   ├── login.astro          # Masuk / daftar (tanpa AppShell)
 │   ├── tasks/
 │   │   ├── index.astro      # Daftar semua tugas (filter + pencarian)
-│   │   └── [id].astro       # Detail satu tugas
+│   │   └── detail.astro     # Detail satu tugas (query ?id=...)
 │   ├── calendar.astro       # Tampilan kalender bulanan
-│   ├── settings.astro       # Pengaturan (notifikasi, tema, export/import)
+│   ├── activity.astro       # Riwayat aktivitas + riwayat masuk
+│   ├── settings.astro       # Pengaturan (akun, notifikasi, tema, export/import)
 │   └── 404.astro
 ├── components/              # Astro components + Svelte islands
-├── lib/                     # db, dates, notifications, store
+├── lib/                     # db, supabase, auth, sync, activity, dates, notifications
 └── styles/
     └── global.css           # Tailwind + design tokens
 ```
@@ -82,6 +111,17 @@ interface Task {
 }
 ```
 
+### Tabel server (Supabase)
+
+| Tabel | Isi |
+|---|---|
+| `profiles` | Profil publik per user, dibuat otomatis oleh trigger saat signup |
+| `tasks` | Salinan tugas per user. `deleted_at` dipakai sebagai tombstone agar penghapusan ikut tersinkron |
+| `login_events` | Riwayat `signup` / `login` / `logout` |
+| `activity_log` | Log append-only: `task_created`, `task_updated`, `task_completed`, `task_reopened`, `task_deleted`, `export`, `import`, `settings_changed` |
+
+Semua tabel dilindungi RLS `user_id = auth.uid()`. `login_events` dan `activity_log` tidak punya policy update/delete, jadi jejak tidak bisa diubah dari klien.
+
 ---
 
 ## Fitur (MVP)
@@ -93,15 +133,18 @@ interface Task {
 5. **Notifikasi**: izin browser + pengingat saat deadline jika aplikasi terbuka. Saat aplikasi ditutup, yang dijamin hanya status tugas terlambat ketika app dibuka kembali.
 6. **PWA**: installable, offline, splash screen, icon
 7. **Export/import JSON**: backup & restore data
+8. **Akun**: daftar/masuk dengan email + password, sesi persisten, tombol keluar di sidebar dan Pengaturan
+9. **Sinkronisasi**: tugas terkirim ke akun saat online, ditarik ulang otomatis saat app dibuka, tab kembali aktif, atau event `online`
+10. **Riwayat aktivitas**: halaman `/activity` berisi timeline perubahan data dan riwayat masuk
 
 ---
 
-## Fitur Non-Fitur (di luar MVP)
+## Fitur Non-Fitur (di luar cakupan)
 
-- ❌ Login / multi-device sync
-- ❌ Kolaborasi / berbagi tugas
-- ❌ Reminder email
-- ❌ Server backend
+- ❌ Kolaborasi / berbagi tugas antar user
+- ❌ Reminder email atau web push (butuh server VAPID)
+- ❌ Login sosial (Google/GitHub) — bisa ditambah tanpa perubahan skema
+- ❌ Audit log yang tahan manipulasi (butuh Edge Function + `service_role`)
 - ❌ APK native (fase 2, setelah PWA stabil)
 
 ---
@@ -117,8 +160,10 @@ interface Task {
 | M5 — Notifikasi | Izin browser dan reminder selama app aktif | Selesai |
 | M6 — PWA & polish | Manifest, service worker, export/import, empty states | 1 hari |
 | M7 — Test & QA | Vitest untuk db/dates, uji manual di phone | 1 hari |
+| M8 — Auth & backend | Project Supabase, skema + RLS, halaman login, guard | Selesai |
+| M9 — Sync & aktivitas | Outbox IndexedDB, push/pull, logging, halaman riwayat | Selesai |
 
-**Total: ~8 hari kerja** (bisa lebih cepat jika dikerjakan penuh).
+**Total: ~10 hari kerja** (bisa lebih cepat jika dikerjakan penuh).
 
 ---
 
@@ -129,7 +174,11 @@ interface Task {
 | Notifikasi tidak jalan saat app tertutup | Reminder real-time tidak dijamin oleh timer browser | Catch-up badge "terlambat" saat app dibuka; notifikasi push perlu backend atau wrapper native |
 | Kompatibilitas versi Astro 7 + Svelte 9 | Build gagal | Sudah dicek. Jika bentrok, turunkan @astrojs/svelte ke ^8 |
 | IndexedDB tidak tersedia (mode privat lama) | Data tidak tersimpan | Fallback ke localStorage + peringatan |
-| Data hilang jika hapus browser | Kehilangan semua tugas | Tombol export JSON selalu ada di settings |
+| Data hilang jika hapus browser | Kehilangan cache lokal | Data sudah ada di server per akun; export JSON tetap tersedia sebagai cadangan tambahan |
+| Konflik edit dua perangkat | Perubahan salah satu tertimpa | Last-write-wins dengan `updated_at` server; perubahan lokal yang masih `pending` tidak ditimpa saat pull |
+| Log aktivitas dipalsukan | Audit tidak tepercaya | Diterima sebagai batasan; audit serius butuh Edge Function dengan `service_role` |
+| Kunci Supabase bocor | Akses data user lain | Hanya publishable/anon key di client; seluruh akses dibatasi RLS. Advisor keamanan Supabase dicek bersih |
+| Latensi region Frankfurt | Login/pull awal terasa lambat | UI baca-tulis lokal lebih dulu; hanya operasi jaringan yang menunggu |
 
 ---
 
@@ -144,6 +193,22 @@ interface Task {
 - [ ] Test Vitest untuk `db.ts` dan `dates.ts` lolos
 - [ ] Tidak ada console error di production
 - [x] **Antislop Delivery Gate**: type-check, build, unit test, responsive check dan alur interaksi browser sudah dilakukan. Verifikasi perangkat nyata masih diperlukan.
+
+### Tambahan untuk auth & sync
+
+- [x] Skema + RLS terpasang, advisor keamanan Supabase bersih (0 lint)
+- [x] Fungsi `handle_new_user()` tidak bisa dipanggil lewat `/rest/v1/rpc`
+- [x] Trigger `on_auth_user_created` membuat baris `profiles` otomatis
+- [x] RLS terverifikasi: user lain melihat 0 baris di keempat tabel
+- [x] `activity_log` append-only: UPDATE/DELETE oleh user menghasilkan 0 baris
+- [x] Login → dashboard, email tampil di sidebar, logout kembali ke `/login`
+- [x] Tugas dibuat di UI muncul di tabel `tasks` beserta `activity_log` dan `login_events`
+- [x] Dua "perangkat" (cache dikosongkan): tugas dari perangkat lain ikut terunduh
+- [x] Hapus tugas menyebar lewat tombstone `deleted_at`, perangkat lain ikut menghapus
+- [x] Offline: tambah tugas tetap berhasil lokal, terkirim ke server setelah `online`
+- [x] `astro check` 0 error / 0 warning; `vitest run` 6/6; `astro build` sukses
+- [ ] **Konfirmasi email masih aktif** — setel `Confirm email = OFF` di dashboard Supabase agar daftar langsung dapat sesi. Token OAuth MCP tidak punya scope `auth_config_write`, jadi langkah ini manual
+- [ ] Tugas dari versi pra-auth (`markAllPending`) belum diuji dengan data nyata
 
 ---
 

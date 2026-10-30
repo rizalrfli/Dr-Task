@@ -4,10 +4,11 @@ Arsitektur teknis untuk pengingat tugas & deadline. Pendamping `plan.md` (tujuan
 
 ## Prinsip
 
-1. **Static-first.** Astro merender shell halaman saat build. Tidak ada server runtime. Semua halaman static (`output: 'static'`), di-cache oleh service worker untuk mendukung penggunaan offline.
-2. **Klien adalah sumber kebenaran.** IndexedDB memegang semua data. Tidak ada API remote, tidak ada auth, tidak ada sinkronisasi di MVP.
+1. **Static-first, dengan backend terkelola.** Astro merender shell halaman saat build (`output: 'static'`), di-cache service worker untuk offline. Tidak ada server runtime milik sendiri; backend sepenuhnya Supabase (Postgres + Auth).
+2. **Lokal dulu, server menyusul.** IndexedDB tetap jalur baca-tulis utama agar UI tidak menunggu jaringan. Supabase adalah sumber kebenaran lintas perangkat; IndexedDB adalah cache + antrean tulis.
 3. **Island arsitektur.** Astro HTML statis + komponen Svelte terhidrasi hanya di area interaktif (daftar, form, kalender). Bundle JS minimal.
-4. **Lapisan data berdiri sendiri.** `lib/db.ts` adalah satu-satunya pintu ke IndexedDB. UI tidak pernah menyentuh `idb` langsung → testable, bisa ditukar.
+4. **Lapisan data berdiri sendiri.** `lib/db.ts` satu-satunya pintu ke IndexedDB, `lib/sync.ts` satu-satunya pintu sinkronisasi, `lib/activity.ts` satu-satunya pintu pencatatan aktivitas. UI tidak menyentuh `idb` atau `supabase` langsung.
+5. **Keamanan di database, bukan di UI.** Row Level Security adalah batas kepercayaan sebenarnya. Gerbang login di `AppShell` hanya kosmetik untuk mencegah kilatan konten.
 
 ## Stack
 
@@ -18,7 +19,8 @@ Arsitektur teknis untuk pengingat tugas & deadline. Pendamping `plan.md` (tujuan
 | Integrasi | @astrojs/svelte | ^9.1.2 | peer: astro ^7 ✓ |
 | PWA | vite-plugin-pwa | ^2.0.0 | pasang langsung sebagai Vite plugin; cocokkan peer Vite |
 | Styling | tailwindcss + @tailwindcss/vite | ^4.3.3 | config via CSS `@theme`, bukan tailwind.config.js |
-| DB | idb | ^8.0.4 | promise wrapper IndexedDB |
+| DB lokal | idb | ^8.0.4 | promise wrapper IndexedDB |
+| Backend | @supabase/supabase-js | ^2 | Auth + Postgres + RLS |
 | Tanggal | date-fns | ^4.4.0 | manipulasi + format tanggal |
 | Test | vitest | ^5.0.5 | environment jsdom untuk db, node untuk dates |
 
@@ -34,9 +36,11 @@ taskpulse/
 ├── src/
 │   ├── pages/
 │   │   ├── index.astro          # Dashboard
+│   │   ├── login.astro          # Masuk / daftar (tanpa AppShell)
 │   │   ├── tasks/index.astro    # Daftar tugas
 │   │   ├── tasks/detail.astro   # Detail berdasarkan query ?id=...
 │   │   ├── calendar.astro       # Kalender bulanan
+│   │   ├── activity.astro       # Riwayat aktivitas + riwayat masuk
 │   │   ├── settings.astro       # Pengaturan + export/import
 │   │   └── 404.astro
 │   ├── components/
@@ -48,10 +52,16 @@ taskpulse/
 │   │   │   ├── TaskForm.svelte
 │   │   │   ├── TaskDetail.svelte
 │   │   │   ├── MonthCalendar.svelte
-│   │   │   └── SettingsPanel.svelte
+│   │   │   ├── SettingsPanel.svelte
+│   │   │   ├── AuthForm.svelte
+│   │   │   └── ActivityLog.svelte
 │   ├── lib/
 │   │   ├── types.ts              # Task, Priority, TaskStatus, FilterState
-│   │   ├── db.ts                 # openDB, CRUD Task
+│   │   ├── db.ts                 # IndexedDB: tasks, sync, activity_outbox
+│   │   ├── supabase.ts           # klien Supabase (anon key + RLS)
+│   │   ├── auth.ts               # signUp/signIn/signOut, pesan error ID
+│   │   ├── sync.ts               # push/pull tugas + auto-sync
+│   │   ├── activity.ts           # logActivity, flushActivity, login_events
 │   │   ├── dates.ts              # dueBucket, daysRemaining, formatID
 │   │   ├── notifications.ts      # Notification API + scheduler
 │   │   ├── export_import.ts      # toJSON/fromJSON
@@ -96,32 +106,84 @@ export interface FilterState {
 
 ### IndexedDB
 
-Satu database `taskpulse-db` v1, satu object store `tasks`, keyPath `id`.
+Database `taskpulse-db` v2, tiga object store:
 
-Index:
-- `byDueDate` pada `dueDate` → query rentang tanggal dashboard/kalender.
-- `byStatus` pada `status` → filter cepat.
-- `byPriority` pada `priority`.
+| Store | keyPath | Isi |
+|---|---|---|
+| `tasks` | `id` | Data `Task` apa adanya |
+| `sync` | `id` | `{ pending, updatedAt, deletedAt? }` — status sinkronisasi per tugas, termasuk tombstone |
+| `activity_outbox` | `localId` (autoIncrement) | Event aktivitas yang belum terkirim |
 
-Put/hapus via `idb`. Tidak ada ORM. Tidak ada migrasi di MVP; bump versi DB hanya saat skema berubah, dengan callback `upgrade()` yang menulis ulang index.
+Index `tasks`: `byDueDate`, `byStatus`, `byPriority` → query dashboard/kalender.
+
+Migrasi v1 → v2 hanya menambah `sync` dan `activity_outbox`; data tugas lama tidak disentuh. Metadata sinkronisasi sengaja dipisah dari `Task` agar bentuk tipe `Task` tetap murni dan `export_import.ts` tidak perlu tahu soal sync.
+
+`getTasks()` menyaring tugas yang punya tombstone di `sync`, jadi UI tidak pernah melihat tugas yang sudah dihapus.
 
 ### Kenapa bukan localStorage
 
 - List tugas membengkak (ratusan baris + deskripsi) → localStorage (±5 MB, sinkron, blok main thread) jadi bottleneck.
 - IndexedDB skala besar, indeks bawaan, async. `idb` menyembunyikan callback.
 
+## Database server (Supabase)
+
+Project: `vuvhfckwqilvdjfckkmk`, region `eu-central-1`, Postgres 17. Kredensial hanya `anon`/publishable key di `PUBLIC_*` env; tidak ada `service_role` di aplikasi.
+
+### Tabel
+
+| Tabel | Kolom kunci | Catatan |
+|---|---|---|
+| `profiles` | `id` (= `auth.users.id`), `email`, `full_name`, `last_seen_at` | Dibuat otomatis oleh trigger `on_auth_user_created` |
+| `tasks` | `id` (text, dari client), `user_id`, `due_date`, `due_time`, `priority`, `status`, `notify`, `updated_at`, `deleted_at` | `deleted_at` = soft delete untuk sinkronisasi |
+| `login_events` | `user_id`, `event` (`signup`/`login`/`logout`), `method`, `user_agent` | Append-only |
+| `activity_log` | `user_id`, `event_type`, `entity_type`, `entity_id`, `path`, `metadata` (jsonb), `user_agent` | Append-only |
+
+Trigger `tasks_set_updated_at` menjaga `updated_at` di sisi server, jadi konflik bisa diselesaikan dengan last-write-wins tanpa bergantung pada jam klien.
+
+### RLS
+
+Semua tabel `enable row level security`, tanpa policy permisif untuk `anon`.
+
+| Tabel | select | insert | update | delete |
+|---|---|---|---|---|
+| `profiles` | own | — (trigger) | own | — |
+| `tasks` | own | own | own | own |
+| `login_events` | own | own | — | — |
+| `activity_log` | own | own | — | — |
+
+Semua policy memakai `(select auth.uid())` agar di-cache sebagai initplan, bukan dievaluasi per baris.
+
+### Fungsi
+
+- `handle_new_user()` — `security definer`, `search_path` dikunci kosong, `EXECUTE` dicabut dari `anon`/`authenticated` supaya tidak bisa dipanggil lewat `/rest/v1/rpc`.
+- `set_updated_at()` — `search_path` dikunci kosong.
+
+Advisor keamanan Supabase bersih setelah dua perbaikan ini.
+
 ## Alur data
 
 ```
-IndexedDB  ⇄  lib/db.ts  ⇄  lib/store.svelte.ts ($state)  ⇄  Svelte islands
-                   ⇣
-              lib/dates.ts          (klasifikasi deadline)
-              lib/notifications.ts  (jadwal + tampilkan)
+        tulis                              baca
+Svelte ──────▶ lib/db.ts (IndexedDB) ◀────── Svelte
+                   │      ▲
+                   │      │ terapkan hasil
+                   ▼      │
+              lib/sync.ts ──▶ Supabase (RLS)
+                   │
+                   ▼
+             lib/activity.ts ──▶ activity_log / login_events
 ```
 
-- `store.svelte.ts` memuat seluruh list ke memori saat hidrasi (`loadTasks()`). Derivasi (filter, urut, statistik) via `$derived` di komponen.
-- Terlalu besar nanti? Pindah ke query per-index per halaman. MVP cukup dengan memori.
-- Mutasi (`addTask/updateTask/deleteTask`) menulis ke DB dulu, baru update store. Jika DB gagal → roll back store + toast.
+- **Baca**: UI selalu baca IndexedDB. Tidak ada spinner menunggu jaringan.
+- **Tulis**: `saveTask`/`removeTask` menulis IndexedDB lalu menandai `pending`. `syncNow()` mengirim semua perubahan tertunda, baru menarik ulang seluruh daftar dari server.
+- **Hapus**: push memakai soft delete (`deleted_at`), bukan `DELETE`, supaya perangkat lain menerima tombstone saat pull dan ikut menghapus salinan lokalnya.
+- **Konflik**: last-write-wins. Perubahan lokal yang masih `pending` tidak ditimpa saat pull, supaya aksi offline tidak hilang.
+- **Auto-sync**: dipicu saat mount, saat event `online`, saat tab kembali visible, dan tiap 60 detik. Dijalankan dari `AppShell`, jadi berlaku di semua halaman.
+- **Offline**: semua aksi tetap berhasil secara lokal; `syncNow()` gagal diam-diam dan dicoba lagi pada pemicu berikutnya.
+
+### Login pertama di perangkat lama
+
+`markAllPending()` menandai tugas IndexedDB yang belum punya baris `sync` (data dari versi pra-auth) agar ikut terkirim pada `syncNow()` pertama. Ini yang membuat data lama tidak hilang setelah upgrade.
 
 ## Notifikasi
 
@@ -226,12 +288,18 @@ Vitest, 2 area:
 
 Island UI: test manual + satu e2e happy-path (tambah tugas → muncul di daftar) bila perlu. MVP: tidak menambah framework e2e.
 
-## Keterbatasan yang disadari (honest constraints MVP)
+## Keterbatasan yang disadari (honest constraints)
 
-1. **Notifikasi tutup-tab.** Timer in-memory mati saat tab tertutup. Web Push butuh server VAPID di luar scope MVP. Solusi sementara: catch-up saat app dibuka (tugas yang sudah lewat → tampilkan badge). User melihat deadline terlewat di dashboard, bukan notifikasi real-time. Dokumentasikan ini di settings.
-2. **Satu device.** Tak ada sync antar device (konsekuensi dari keputusan IndexedDB-only). Backup manual via export JSON.
-3. **Full-Text Search.** Data besar → linear scan lambat? MVP scan memory; index search memori sampai ribuan baris tidak masalah.
-4. **Zona waktu.** `dueDate` disimpan sebagai `YYYY-MM-DD` lokal; migrasi ke timestamp UTC dipertimbangkan bila ada fitur lintas zona waktu.
+1. **Notifikasi tutup-tab.** Timer in-memory mati saat tab tertutup. Web Push butuh server VAPID di luar scope. Solusi sementara: catch-up saat app dibuka (tugas yang sudah lewat → tampilkan badge). User melihat deadline terlewat di dashboard, bukan notifikasi real-time. Dokumentasikan ini di settings.
+2. **Sync satu arah per siklus.** `syncNow()` push lalu pull seluruh daftar, bukan delta per kolom. Cukup untuk ratusan tugas; kalau daftar membesar, ganti pull menjadi `updated_at > last_pull`.
+3. **Konflik last-write-wins.** Dua perangkat mengedit tugas yang sama secara offline → yang push terakhir menang, tanpa dialog merge. `deleted_at` menang atas edit hanya jika push-nya lebih akhir.
+4. **Log aktivitas bisa dipalsukan.** Insert `activity_log` dan `login_events` dilakukan dari browser dengan token user sendiri. User teknis bisa mengirim event palsu lewat REST API. Audit yang tepercaya butuh Edge Function dengan `service_role`.
+5. **`failed_login` dan IP tidak tercatat.** Percobaan login gagal terjadi sebelum ada session, jadi tidak ada token untuk insert. IP hanya tersedia di sisi server (`auth.audit_log_entries`, butuh service role).
+6. **Offline lama butuh reconnect.** Token akses berumur ±1 jam. Melewati itu, data lokal tetap terbaca tapi sync dan log tertunda sampai online sekali.
+7. **Gerbang login bersifat kosmetik.** Redirect di `<head>` mencegah kilatan konten, bukan proteksi. Batas kepercayaan sebenarnya adalah RLS.
+8. **Full-Text Search.** Data besar → linear scan lambat? Scan memory sampai ribuan baris masih wajar.
+9. **Zona waktu.** `dueDate` disimpan sebagai `YYYY-MM-DD` lokal; migrasi ke timestamp UTC dipertimbangkan bila ada fitur lintas zona waktu.
+10. **Latensi region.** Server di `eu-central-1` (Frankfurt), user di Indonesia ±150–200 ms per round trip. Tidak terasa karena UI baca-tulis lokal; hanya login pertama dan pull awal yang menunggu.
 
 ## Fase 2 — APK
 

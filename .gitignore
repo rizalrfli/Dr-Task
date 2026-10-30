@@ -1,1 +1,15 @@
 node_modules
+.env
+.env.local
+
+# build output
+dist/
+.astro/
+
+# tooling artifacts
+.playwright-mcp/
+.vercel/
+
+# os
+.DS_Store
+Thumbs.db

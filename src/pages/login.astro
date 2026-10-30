@@ -1,0 +1,26 @@
+---
+import AuthForm from '../components/islands/AuthForm.svelte';
+import '../styles/global.css';
+---
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#F5F3EE" />
+    <meta name="description" content="Masuk ke TaskPulse untuk menyinkronkan tugas dan deadline milikmu." />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/icons/mark.svg" />
+    <title>Masuk · TaskPulse</title>
+    <script is:inline>
+      try {
+        const saved = localStorage.getItem('taskpulse-theme');
+        const dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.classList.toggle('dark', dark);
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <AuthForm client:load />
+  </body>
+</html>
