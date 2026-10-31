@@ -19,37 +19,38 @@ Deno.serve(async (request) => {
   const localTime = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now);
   const nowLocal = new Date(`${localDate}T${localTime}:00+07:00`);
 
-  const windowStart = new Date(nowLocal.getTime() + 60 * 1000);
-  const windowEnd = new Date(nowLocal.getTime() + 5 * 60 * 60 * 1000);
   const dateKey = (date: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
 
   const { data: tasks, error: tasksError } = await supabase.from('tasks')
     .select('id,user_id,title,due_date,due_time,status,notify,deleted_at')
-    .eq('status', 'pending').eq('notify', true).is('deleted_at', null)
-    .gte('due_date', dateKey(windowStart)).lte('due_date', dateKey(windowEnd));
+    .eq('status', 'pending').eq('notify', true).is('deleted_at', null);
   if (tasksError) return Response.json({ error: 'Task query failed' }, { status: 500, headers: cors });
 
-  const due = (tasks ?? []).filter((task) => {
+  const due = (tasks ?? []).flatMap((task) => {
     const deadline = new Date(`${task.due_date}T${task.due_time ?? '09:00:00'}+07:00`);
-    return deadline >= windowStart && deadline <= windowEnd;
+    const remaining = deadline.getTime() - nowLocal.getTime();
+    if (remaining <= 0) return [{ task, overdue: true }];
+    if (remaining <= 5 * 60 * 60 * 1000) return [{ task, overdue: false }];
+    return [];
   });
 
   let sent = 0;
   let skipped = 0;
   const errors: string[] = [];
-  for (const task of due) {
+  for (const { task, overdue } of due) {
     const { data: subscriptions } = await supabase.from('push_subscriptions').select('endpoint,subscription').eq('user_id', task.user_id);
     for (const entry of subscriptions ?? []) {
       const { data: claimed, error: claimError } = await supabase.rpc('claim_push_reminder', {
         p_task_id: task.id,
-        p_endpoint: entry.endpoint
+        p_endpoint: entry.endpoint,
+        p_overdue: overdue
       });
       if (claimError) { errors.push(`${task.id}:claim-error`); continue; }
       if (!claimed) { skipped++; continue; }
       try {
         await webpush.sendNotification(entry.subscription, JSON.stringify({
-          title: 'Pengingat deadline',
-          body: `${task.title} · ${task.due_date}${task.due_time ? ` ${task.due_time}` : ''}`,
+          title: overdue ? 'KAMU SUDAH MELEWATI BATAS' : 'Pengingat deadline',
+          body: overdue ? `${task.title} · tenggat ${task.due_date}${task.due_time ? ` ${task.due_time}` : ''}` : `${task.title} · ${task.due_date}${task.due_time ? ` ${task.due_time}` : ''}`,
           tag: `task-${task.id}`,
           url: `/tasks/detail?id=${encodeURIComponent(task.id)}`
         }));
