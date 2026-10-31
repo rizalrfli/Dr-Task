@@ -4,6 +4,7 @@
   import { getTask, removeTask, saveTask } from '../../lib/db';
   import { logActivity } from '../../lib/activity';
   import { syncNow } from '../../lib/sync';
+  import { cancelTaskReminder } from '../../lib/notifications';
   import type { Task } from '../../lib/types';
   let task = $state<Task | undefined>();
   let loading = $state(true);
@@ -22,6 +23,7 @@
       const updated = { ...task, status: nextStatus, completedAt: nextStatus === 'done' ? new Date().toISOString() : undefined };
       await saveTask(updated);
       task = updated;
+      if (nextStatus === 'done') cancelTaskReminder(task.id);
       window.dispatchEvent(new Event('taskpulse:tasks-changed'));
       void logActivity(nextStatus === 'done' ? 'task_completed' : 'task_reopened', { entityType: 'task', entityId: task.id });
       void syncNow().then(() => window.dispatchEvent(new Event('taskpulse:tasks-changed')));

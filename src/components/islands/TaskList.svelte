@@ -4,7 +4,7 @@
   import { getTasks, removeTask, saveTask } from '../../lib/db';
   import { logActivity } from '../../lib/activity';
   import { syncNow } from '../../lib/sync';
-  import { requestNotificationPermission, scheduleTaskReminder } from '../../lib/notifications';
+  import { cancelTaskReminder, requestNotificationPermission, scheduleTaskReminder } from '../../lib/notifications';
   import type { Priority, Task } from '../../lib/types';
 
   let tasks = $state<Task[]>([]);
@@ -73,6 +73,7 @@
     try {
       const nextStatus = task.status === 'done' ? 'pending' : 'done';
       await saveTask({ ...task, status: nextStatus, completedAt: nextStatus === 'done' ? new Date().toISOString() : undefined });
+      if (nextStatus === 'done') cancelTaskReminder(task.id);
       await refresh(); announceTaskChange();
       void logActivity(nextStatus === 'done' ? 'task_completed' : 'task_reopened', { entityType: 'task', entityId: task.id });
       void syncNow().then(() => announceTaskChange());
