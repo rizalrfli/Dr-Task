@@ -9,6 +9,7 @@ dist/
 # tooling artifacts
 .playwright-mcp/
 .vercel/
+supabase/.temp/
 
 # os
 .DS_Store

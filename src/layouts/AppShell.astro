@@ -72,7 +72,12 @@ const nav = [
       import { startAutoSync } from '../lib/sync';
       import { getTasks } from '../lib/db';
       import { scheduleTaskReminder } from '../lib/notifications';
+      import { unlockReminderSound } from '../lib/sound';
       registerSW({ onNeedRefresh() { window.dispatchEvent(new Event('taskpulse:update-ready')); } });
+
+      const unlock = () => { unlockReminderSound(); window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock); };
+      window.addEventListener('pointerdown', unlock, { once: true });
+      window.addEventListener('keydown', unlock, { once: true });
 
       const emailLabel = document.querySelector<HTMLElement>('#account-email');
       void getSession().then((session) => {

@@ -7,7 +7,11 @@ self.addEventListener('push', (event) => {
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
     tag: payload.tag || 'taskpulse-reminder',
-    data: { url: payload.url || '/' }
+    data: { url: payload.url || '/' },
+    silent: false,
+    renotify: true,
+    requireInteraction: true,
+    vibrate: [600, 200, 600, 200, 600]
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });

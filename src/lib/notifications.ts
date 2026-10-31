@@ -1,13 +1,19 @@
 ﻿import type { Task } from './types';
 import { getTasks, removeTask } from './db';
+import { playReminderSound } from './sound';
 
 function notifyIfAllowed(task: Task) {
   if (!task.notify || task.status === 'done' || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
   if (!('serviceWorker' in navigator)) return;
-  navigator.serviceWorker.ready.then((registration) => registration.showNotification('Deadline tugas', {
+  playReminderSound();
+  const options = {
     body: `${task.title} · ${task.dueDate}${task.dueTime ? ` ${task.dueTime}` : ''}`,
-    icon: '/icons/icon-192.png', tag: `task-${task.id}`, data: { url: `/tasks/detail?id=${encodeURIComponent(task.id)}` }
-  })).catch(() => undefined);
+    icon: '/icons/icon-192.png', badge: '/icons/icon-192.png', tag: `task-${task.id}`,
+    data: { url: `/tasks/detail?id=${encodeURIComponent(task.id)}` },
+    silent: false, renotify: true, requireInteraction: true,
+    vibrate: [600, 200, 600, 200, 600]
+  } as NotificationOptions;
+  navigator.serviceWorker.ready.then((registration) => registration.showNotification('Deadline tugas', options)).catch(() => undefined);
 }
 
 export async function requestNotificationPermission(): Promise<NotificationPermission | 'unsupported'> {
