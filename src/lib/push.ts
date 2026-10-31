@@ -1,5 +1,7 @@
 import { supabase } from './supabase';
 
+export const PUSH_ACTIVE_KEY = 'taskpulse:push-active';
+
 function base64UrlToBytes(value: string) {
   const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
   const raw = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '='));
@@ -30,4 +32,5 @@ export async function subscribeToPush(): Promise<void> {
     body: JSON.stringify({ user_id: session.user.id, endpoint: json.endpoint, subscription: json })
   });
   if (!response.ok) throw new Error('Langganan push gagal disimpan ke akun.');
+  localStorage.setItem(PUSH_ACTIVE_KEY, '1');
 }

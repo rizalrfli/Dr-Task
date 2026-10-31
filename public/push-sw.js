@@ -13,7 +13,11 @@ self.addEventListener('push', (event) => {
     requireInteraction: true,
     vibrate: [600, 200, 600, 200, 600]
   };
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil((async () => {
+    await self.registration.showNotification(title, options);
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of clients) client.postMessage({ type: 'taskpulse:push-received' });
+  })());
 });
 
 self.addEventListener('notificationclick', (event) => {

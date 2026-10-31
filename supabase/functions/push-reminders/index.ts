@@ -18,13 +18,10 @@ Deno.serve(async (request) => {
   const localDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
   const localTime = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now);
   const nowLocal = new Date(`${localDate}T${localTime}:00+07:00`);
-  const minuteOfDay = Number(localTime.slice(0, 2)) * 60 + Number(localTime.slice(3, 5));
-  if (minuteOfDay % 10 !== 0) return Response.json({ sent: 0, skipped: 'not-reminder-minute' }, { headers: cors });
 
   const windowStart = new Date(nowLocal.getTime() + 60 * 1000);
   const windowEnd = new Date(nowLocal.getTime() + 5 * 60 * 60 * 1000);
   const dateKey = (date: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
-  const timeKey = (date: Date) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
 
   const { data: tasks, error: tasksError } = await supabase.from('tasks')
     .select('id,user_id,title,due_date,due_time,status,notify,deleted_at')
@@ -32,13 +29,23 @@ Deno.serve(async (request) => {
     .gte('due_date', dateKey(windowStart)).lte('due_date', dateKey(windowEnd));
   if (tasksError) return Response.json({ error: 'Task query failed' }, { status: 500, headers: cors });
 
-  let sent = 0;
-  const errors: string[] = [];
-  for (const task of tasks ?? []) {
+  const due = (tasks ?? []).filter((task) => {
     const deadline = new Date(`${task.due_date}T${task.due_time ?? '09:00:00'}+07:00`);
-    if (deadline < windowStart || deadline > windowEnd) continue;
+    return deadline >= windowStart && deadline <= windowEnd;
+  });
+
+  let sent = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+  for (const task of due) {
     const { data: subscriptions } = await supabase.from('push_subscriptions').select('endpoint,subscription').eq('user_id', task.user_id);
     for (const entry of subscriptions ?? []) {
+      const { data: claimed, error: claimError } = await supabase.rpc('claim_push_reminder', {
+        p_task_id: task.id,
+        p_endpoint: entry.endpoint
+      });
+      if (claimError) { errors.push(`${task.id}:claim-error`); continue; }
+      if (!claimed) { skipped++; continue; }
       try {
         await webpush.sendNotification(entry.subscription, JSON.stringify({
           title: 'Pengingat deadline',
@@ -46,13 +53,15 @@ Deno.serve(async (request) => {
           tag: `task-${task.id}`,
           url: `/tasks/detail?id=${encodeURIComponent(task.id)}`
         }));
+        await supabase.rpc('finish_push_reminder', { p_task_id: task.id, p_endpoint: entry.endpoint, p_sent: true });
         sent++;
       } catch (error) {
         const status = (error as { statusCode?: number }).statusCode;
         if (status === 404 || status === 410) await supabase.from('push_subscriptions').delete().eq('endpoint', entry.endpoint);
         else errors.push(`${task.id}:${status ?? 'send-error'}`);
+        await supabase.rpc('finish_push_reminder', { p_task_id: task.id, p_endpoint: entry.endpoint, p_sent: status === 404 || status === 410 });
       }
     }
   }
-  return Response.json({ sent, errors }, { headers: cors });
+  return Response.json({ sent, skipped, errors }, { headers: cors });
 });
