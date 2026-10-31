@@ -19,8 +19,9 @@
     if (!task) return;
     try {
       const nextStatus = task.status === 'done' ? 'pending' : 'done';
-      task = { ...task, status: nextStatus, completedAt: nextStatus === 'done' ? new Date().toISOString() : undefined };
-      await saveTask(task);
+      const updated = { ...task, status: nextStatus, completedAt: nextStatus === 'done' ? new Date().toISOString() : undefined };
+      await saveTask(updated);
+      task = updated;
       window.dispatchEvent(new Event('taskpulse:tasks-changed'));
       void logActivity(nextStatus === 'done' ? 'task_completed' : 'task_reopened', { entityType: 'task', entityId: task.id });
       void syncNow().then(() => window.dispatchEvent(new Event('taskpulse:tasks-changed')));
